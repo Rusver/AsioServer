@@ -1,10 +1,11 @@
 #include "BackupServer.hpp"
+#include "Protocol.hpp"
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <random>
 #include <iostream>
-#define _WIN32_WINNT 0x0601
 #include <windows.h>
+#include <winsock2.h>
 
 BackupServer::BackupServer(unsigned short port, const std::string& baseDir)
     : acceptor_(io_service_, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port)),
@@ -29,36 +30,40 @@ void BackupServer::acceptConnections() {
 
 void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
     try {
-        boost::asio::streambuf buf;
-        boost::asio::read_until(socket, buf, "\n"); // protocol: first line = command
-        std::istream is(&buf);
-        std::string command;
-        std::getline(is, command);
+        RequestHeader hdr;
+        boost::asio::read(socket, boost::asio::buffer(&hdr, sizeof(hdr)));
 
-        // simple protocol: CMD USERID FILENAME
-        std::string userId, filename;
-        is >> userId >> filename;
+        // Convert little-endian fields
+        hdr.user_id = le32toh(hdr.user_id);
+        hdr.name_len = le16toh(hdr.name_len);
 
-        if (command == "SAVE") {
-            std::vector<char> fileData((std::istreambuf_iterator<char>(is)), {});
-            saveFile(userId, filename, fileData);
-            boost::asio::write(socket, boost::asio::buffer("OK\n"));
-        }
-        else if (command == "DELETE") {
-            deleteFile(userId, filename);
-            boost::asio::write(socket, boost::asio::buffer("OK\n"));
-        }
-        else if (command == "LIST") {
-            std::string listFile = listFiles(userId);
-            boost::asio::write(socket, boost::asio::buffer(listFile));
-        }
-        else if (command == "GET") {
-            std::vector<char> data = getFile(userId, filename);
-            boost::asio::write(socket, boost::asio::buffer(data));
-        }
-        else {
-            boost::asio::write(socket, boost::asio::buffer("ERROR Unknown command\n"));
-        }
+        // Read filename
+        std::vector<char> nameBuf(hdr.name_len);
+        boost::asio::read(socket, boost::asio::buffer(nameBuf.data(), hdr.name_len));
+        std::string filename(nameBuf.begin(), nameBuf.end());
+
+        std::cout << "User " << hdr.user_id
+            << " requested op=" << (int)hdr.op
+            << " file=" << filename
+            << " (ver " << (int)hdr.version << ")" << std::endl;
+
+        // Read payload header (file size)
+        PayloadHeader ph;
+        boost::asio::read(socket, boost::asio::buffer(&ph, sizeof(ph)));
+        ph.size = le32toh(ph.size);
+
+        // Read payload data (file)
+        std::vector<char> fileData(ph.size);
+        boost::asio::read(socket, boost::asio::buffer(fileData.data(), ph.size));
+
+        // Save to disk as example
+        std::ofstream out("received_" + filename, std::ios::binary);
+        out.write(fileData.data(), fileData.size());
+        out.close();
+
+        std::cout << "File received: " << filename
+            << " (" << fileData.size() << " bytes)" << std::endl;
+
     }
     catch (std::exception& e) {
         std::cerr << "Client error: " << e.what() << std::endl;
