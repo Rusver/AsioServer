@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 
+
 #pragma pack(push, 1)
 struct RequestHeader {
     uint32_t user_id;   // 4 bytes
@@ -20,9 +21,12 @@ struct PayloadHeader {
 
 // Helper endian conversion (cross-platform)
 #if defined(_WIN32)
-    #include <winsock2.h>
+    #include <windows.h>
+    #define htole16(x) (x)
     #define le16toh(x) (x)
+    #define htole32(x) (x)
     #define le32toh(x) (x)
 #else
     #include <endian.h>
+// Convert host <-> little endian (no change on little-endian Windows)
 #endif

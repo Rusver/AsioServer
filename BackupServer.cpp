@@ -47,23 +47,57 @@ void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
             << " file=" << filename
             << " (ver " << (int)hdr.version << ")" << std::endl;
 
-        // Read payload header (file size)
-        PayloadHeader ph;
-        boost::asio::read(socket, boost::asio::buffer(&ph, sizeof(ph)));
-        ph.size = le32toh(ph.size);
+        // Base directory per user
+        std::string userId = std::to_string(hdr.user_id);
 
-        // Read payload data (file)
-        std::vector<char> fileData(ph.size);
-        boost::asio::read(socket, boost::asio::buffer(fileData.data(), ph.size));
+        // === Handle by op code ===
+        switch (hdr.op) {
+        case 100: {  // SAVE FILE
+            PayloadHeader ph;
+            boost::asio::read(socket, boost::asio::buffer(&ph, sizeof(ph)));
+            ph.size = le32toh(ph.size);
 
-        // Save to disk as example
-        std::ofstream out("received_" + filename, std::ios::binary);
-        out.write(fileData.data(), fileData.size());
-        out.close();
+            std::vector<char> fileData(ph.size);
+            boost::asio::read(socket, boost::asio::buffer(fileData.data(), ph.size));
 
-        std::cout << "File received: " << filename
-            << " (" << fileData.size() << " bytes)" << std::endl;
+            saveFile(userId, filename, fileData);
+            std::cout << "Saved file: " << filename << " (" << fileData.size() << " bytes)" << std::endl;
+            break;
+        }
 
+        case 200: {  // GET FILE
+            std::vector<char> data = getFile(userId, filename);
+
+            // Send payload header + data
+            PayloadHeader ph{ static_cast<uint32_t>(data.size()) };
+            ph.size = htole32(ph.size);
+            boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
+            boost::asio::write(socket, boost::asio::buffer(data));
+            std::cout << "Sent file: " << filename << " (" << data.size() << " bytes)" << std::endl;
+            break;
+        }
+
+        case 201: {  // DELETE FILE
+            deleteFile(userId, filename);
+            std::cout << "Deleted file: " << filename << std::endl;
+            break;
+        }
+
+        case 202: {  // LIST FILES
+            std::string listFile = listFiles(userId);
+            std::vector<char> data(listFile.begin(), listFile.end());
+            PayloadHeader ph{ static_cast<uint32_t>(data.size()) };
+            ph.size = htole32(ph.size);
+            boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
+            boost::asio::write(socket, boost::asio::buffer(data));
+            std::cout << "Sent file list for user " << userId << std::endl;
+            break;
+        }
+
+        default:
+            std::cerr << "Unknown operation code: " << (int)hdr.op << std::endl;
+            break;
+        }
     }
     catch (std::exception& e) {
         std::cerr << "Client error: " << e.what() << std::endl;
