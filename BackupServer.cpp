@@ -62,10 +62,34 @@ void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
 
             saveFile(userId, filename, fileData);
             std::cout << "Saved file: " << filename << " (" << fileData.size() << " bytes)" << std::endl;
+
+            // send response header (size = 0, or maybe 1 with "OK")
+            std::string response = "OK";
+            std::vector<char> data(response.begin(), response.end());
+            PayloadHeader ph{ static_cast<uint32_t>(data.size()) };
+            ph.size = htole32(ph.size);
+            boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
+            boost::asio::write(socket, boost::asio::buffer(data));
             break;
         }
 
         case 200: {  // GET FILE
+            boost::filesystem::path filePath = boost::filesystem::path(baseDir_) / userId / filename;
+            
+
+            // Check if file exists
+            if (!boost::filesystem::exists(filePath)) {
+                std::cerr << "File not found: " << filePath << std::endl;
+
+                // Send error header (size 0 for example)
+                PayloadHeader ph{ 0 };
+                ph.size = htole32(ph.size);
+                boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
+
+                break; // exit case
+            }
+
+            // Read file data
             std::vector<char> data = getFile(userId, filename);
 
             // Send payload header + data
@@ -73,6 +97,7 @@ void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
             ph.size = htole32(ph.size);
             boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
             boost::asio::write(socket, boost::asio::buffer(data));
+
             std::cout << "Sent file: " << filename << " (" << data.size() << " bytes)" << std::endl;
             break;
         }
