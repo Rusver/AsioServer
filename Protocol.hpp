@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 
+/// Send response for the client by the protocol
 void sendResponse(boost::asio::ip::tcp::socket& socket, const std::string& message);
 
 #pragma pack(push, 1)
@@ -21,6 +22,7 @@ struct PayloadHeader {
 #pragma pack(pop)
 
 // Helper endian conversion (cross-platform)
+// Windows uses little-endian nativel
 #if defined(_WIN32)
     #include <windows.h>
     #define htole16(x) (x)

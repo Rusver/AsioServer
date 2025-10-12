@@ -7,21 +7,30 @@
 #include <windows.h>
 #include <winsock2.h>
 
-
-/// Get the local endpoint of the acceptor.
+/// Send response for the client by the protocol
  /**
-  * This function is used to obtain the locally bound endpoint of the acceptor.
+  *  if its size is 0 - the client will understand there is an error or empty file
+  *  for example a file of empty list dir without names inside.. (0 bytes)
   *
-  * @returns An object that represents the local endpoint of the acceptor.
+  */
+void sendResponse(boost::asio::ip::tcp::socket& socket, const std::string& message) {
+    std::vector<char> data(message.begin(), message.end());
+    PayloadHeader ph{ static_cast<uint32_t>(data.size()) };
+    ph.size = htole32(ph.size);  // convert to little-endian
+
+    // Send header
+    boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
+    // Send payload
+    if (!data.empty()) {
+        boost::asio::write(socket, boost::asio::buffer(data));
+    }
+}
+
+/// Constructor for the Server
+ /**
   *
   * @throws boost::system::system_error Thrown on failure.
   *
-  * @par Example
-  * @code
-  * boost::asio::ip::tcp::acceptor acceptor(my_context);
-  * ...
-  * boost::asio::ip::tcp::endpoint endpoint = acceptor.local_endpoint();
-  * @endcode
   */
 
 BackupServer::BackupServer(unsigned short port, const std::string& baseDir)
@@ -30,12 +39,22 @@ BackupServer::BackupServer(unsigned short port, const std::string& baseDir)
 {
 }
 
+/// make the Server run..
+ /**
+  *
+  * @prints that the server is running and the port number..
+  *
+  */
+
 void BackupServer::run() {
     unsigned int port = acceptor_.local_endpoint().port();
     std::cout << "Server running on port " << port << "..." << std::endl;
     acceptConnections();
     io_service_.run();
 }
+
+// make the Server stateless accept connections (asynchronyc)
+
 
 void BackupServer::acceptConnections() {
     acceptor_.async_accept([this](boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
@@ -45,6 +64,9 @@ void BackupServer::acceptConnections() {
         acceptConnections(); // accept next connection
         });
 }
+
+// Handle the connections to the server and handle their requests by the protocol
+
 
 void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
     try {
@@ -81,7 +103,6 @@ void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
             saveFile(userId, filename, fileData);
             std::cout << "Saved file: " << filename << " (" << fileData.size() << " bytes)" << std::endl;
 
-            // send response header (size = 0, or maybe 1 with "OK")
             sendResponse(socket, "OK");
             break;
         }
@@ -141,6 +162,7 @@ void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
     }
 }
 
+// This function gets the file via the data parameter and saves it to a file via the filename parm
 void BackupServer::saveFile(const std::string& userId, const std::string& filename, std::vector<char>& data) {
     boost::filesystem::path userDir = boost::filesystem::path(baseDir_) / userId;
     boost::filesystem::create_directories(userDir);
@@ -148,12 +170,20 @@ void BackupServer::saveFile(const std::string& userId, const std::string& filena
     out.write(data.data(), data.size());
 }
 
+
+// This function delets the specified file via the filename parm
 void BackupServer::deleteFile(const std::string& userId, const std::string& filename) {
     boost::filesystem::path filePath = boost::filesystem::path(baseDir_) / userId / filename;
     if (boost::filesystem::exists(filePath))
         boost::filesystem::remove(filePath);
 }
 
+//This function generates the list file as mentioned in the maman  
+/*
+*   the function generates random filename 32 length made of 'A-Za-z0-9' combination
+*   the function check what are the files inside the diretory and writes it to the file
+*   @return the list filename that the function generated
+*/
 std::string BackupServer::listFiles(const std::string& userId) {
     boost::filesystem::path userDir = boost::filesystem::path(baseDir_) / userId;
     boost::filesystem::create_directories(userDir);
@@ -176,6 +206,12 @@ std::string BackupServer::listFiles(const std::string& userId) {
     return listFilename;  // Return the random text filename
 }
 
+/**
+ * @brief returns the file asked via the filename
+ * @param userId 
+ * @param filename 
+ * @return 
+ */
 std::vector<char> BackupServer::getFile(const std::string& userId, const std::string& filename) {
     boost::filesystem::path filePath = boost::filesystem::path(baseDir_) / userId / filename;
     std::ifstream in(filePath.string(), std::ios::binary);
@@ -183,6 +219,11 @@ std::vector<char> BackupServer::getFile(const std::string& userId, const std::st
     return data;
 }
 
+/**
+ * @brief generating the filename as requested, randomly.. 
+ * @param length 
+ * @return 
+ */
 std::string BackupServer::generateRandomFilename(size_t length) {
     const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     std::default_random_engine rng(std::random_device{}());
@@ -193,16 +234,5 @@ std::string BackupServer::generateRandomFilename(size_t length) {
     return result;
 }
 
-void sendResponse(boost::asio::ip::tcp::socket& socket, const std::string& message) {
-    std::vector<char> data(message.begin(), message.end());
-    PayloadHeader ph{ static_cast<uint32_t>(data.size()) };
-    ph.size = htole32(ph.size);  // convert to little-endian
 
-    // Send header
-    boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
-    // Send payload
-    if (!data.empty()) {
-        boost::asio::write(socket, boost::asio::buffer(data));
-    }
-}
 

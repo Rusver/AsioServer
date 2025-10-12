@@ -130,13 +130,17 @@ def main():
 
 
     # 2-3 Upload all files
-    for filename in filenames:
-        with reconnect() as s:
-            with open(filename, "rb") as f:
-                data = f.read()
-            print(f"Uploading {filename} ({len(data)} bytes)...")
-            send_request(s, user_id, version, OP_SAVE, filename, data)
-            print(receive_response(s))
+    if not filenames:
+        print("No files found in backup.info — nothing to upload.")
+        return
+    else:
+        for filename in filenames:
+            with reconnect() as s:
+                with open(filename, "rb") as f:
+                    data = f.read()
+                print(f"Uploading {filename} ({len(data)} bytes)...")
+                send_request(s, user_id, version, OP_SAVE, filename, data)
+                print(receive_response(s))
 
 
     # 4️ list again
