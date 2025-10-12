@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 
+void sendResponse(boost::asio::ip::tcp::socket& socket, const std::string& message);
 
 #pragma pack(push, 1)
 struct RequestHeader {

@@ -133,6 +133,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\..\..\Downloads\boost_1_89_0\boost_1_89_0\boost\asio.hpp" />
     <ClInclude Include="BackupServer.hpp" />
+    <ClInclude Include="Protocol.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
