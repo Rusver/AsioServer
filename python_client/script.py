@@ -129,23 +129,15 @@ def main():
 
 
 
-    # 2️ save first file
-    with reconnect() as s:
-        filename = filenames[0]
-        with open(filename, "rb") as f:
-            data = f.read()
-        print(f"Uploading {filename} ({len(data)} bytes)...")
-        send_request(s, user_id, version, OP_SAVE, filename, data)
-        print(receive_response(s))
+    # 2-3 Upload all files
+    for filename in filenames:
+        with reconnect() as s:
+            with open(filename, "rb") as f:
+                data = f.read()
+            print(f"Uploading {filename} ({len(data)} bytes)...")
+            send_request(s, user_id, version, OP_SAVE, filename, data)
+            print(receive_response(s))
 
-    # 3️ save second file
-    with reconnect() as s:
-        filename = filenames[1]
-        with open(filename, "rb") as f:
-            data = f.read()
-        print(f"Uploading {filename} ({len(data)} bytes)...")
-        send_request(s, user_id, version, OP_SAVE, filename, data)
-        print(receive_response(s))
 
     # 4️ list again
     with reconnect() as s:
@@ -154,7 +146,7 @@ def main():
         list_bytes = receive_response(s, save_as="file_list.txt")  # save to file
         if list_bytes:
             list_filename = list_bytes.decode("ascii").strip()
-            print(f"📄 Server created list file: {list_filename}")
+            print(f"Server created list file: {list_filename}")
 
             # Now request the actual list file
             with reconnect() as s2:
