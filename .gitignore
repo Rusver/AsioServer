@@ -4,6 +4,7 @@
 *.suo
 *.user
 *.vcxproj.user
+*.vcxproj*
 bin/
 Debug/
 Release/
