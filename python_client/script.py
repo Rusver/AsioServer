@@ -52,33 +52,50 @@ def send_request(sock, user_id, version, op, filename, payload=b''):
         send_all(sock, payload_hdr + payload)
 
 def receive_response(sock, save_as=None):
-    """Receive payload from server. Optionally save to a file."""
+    """Receive structured server response and handle known response codes."""
     try:
-        # Read 4 bytes of payload header (file size)
-        payload_header = recv_all(sock, 4)
-        if len(payload_header) < 4:
-            print("Error Server: Invalid response.")
+        header = recv_all(sock, 3)
+        if len(header) < 3:
+            print("Error: Invalid or incomplete response header.")
             return None
 
-        (size,) = struct.unpack("<I", payload_header)  # little-endian uint32
+        version, code = struct.unpack("<BH", header)  # B = uint8, H = uint16 little-endian
 
-        if size == 0:
-            print("Error Server: File not found or empty.")
+        # === Handle known response codes ===
+        if code == 210:
+            print("210 OK — Operation successful.")
+        elif code == 211:
+            print("211 The file list is OK")
+        elif code == 212:
+            print("212 the backup / file deletion succeeded")
+        elif code == 1001:
+            print("1001 Error — Invalid request.")
             return None
+        elif code == 1002:
+            print("1002 Error — File not found.")
+            return None
+        elif code == 1003:
+            print("1003 Error — Server-side failure.")
+            return None
+        else:
+            print(f"Unknown server code: {code}")
 
-        # Read file data
-        data = recv_all(sock, size)
+        if code in (210, 211, 212):  # success codes with optional payload
+            # Try to read payload header if message exists
+            payload_header = recv_all(sock, 4)
+            (size,) = struct.unpack("<I", payload_header)
+            if size > 0:
+                data = recv_all(sock, size)
+                if save_as:
+                    with open(save_as, "wb") as f:
+                        f.write(data)
+                        print(f"💾 Saved payload as {save_as}")
+                return data
 
-        # Save to file if requested
-        if save_as:
-            with open(save_as, "wb") as f:
-                f.write(data)
-            print(f"Saved response as {save_as}")
-
-        return data  # raw bytes
     except Exception as e:
-        print(f"X Error receiving response: {e}")
+        print(f"Error receiving response: {e}")
         return None
+
 
 def parse_file_list(file_bytes):
     """Convert bytes of list file into Python list of filenames."""
@@ -166,7 +183,7 @@ def main():
                     print(list_data.decode(errors="ignore"))
 
         else:
-            print("Error Server Failed to get list filename.")
+            print("2 Error Server Failed to get list filename.")
 
     # 5 get first file
     with reconnect() as s:

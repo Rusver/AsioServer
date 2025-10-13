@@ -1,8 +1,7 @@
 #pragma once
 #include <cstdint>
 
-/// Send response for the client by the protocol
-void sendResponse(boost::asio::ip::tcp::socket& socket, const std::string& message);
+
 
 #pragma pack(push, 1)
 struct RequestHeader {
@@ -18,6 +17,13 @@ struct RequestHeader {
 struct PayloadHeader {
     uint32_t size;  // 4 bytes
     // binary data follows (variable)
+};
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct ResponseHeader {
+    uint8_t version;
+    uint16_t status;  // 210 / 211 / 212 / 1001 / 1002 / 1003
 };
 #pragma pack(pop)
 

@@ -13,18 +13,19 @@
   *  for example a file of empty list dir without names inside.. (0 bytes)
   *
   */
-void sendResponse(boost::asio::ip::tcp::socket& socket, const std::string& message) {
-    std::vector<char> data(message.begin(), message.end());
-    PayloadHeader ph{ static_cast<uint32_t>(data.size()) };
-    ph.size = htole32(ph.size);  // convert to little-endian
+void sendResponse(boost::asio::ip::tcp::socket& socket, uint8_t version, uint16_t status, const std::string& message = "") {
+    ResponseHeader rh{ version, static_cast<uint16_t>(htole16(status)) };
+    boost::asio::write(socket, boost::asio::buffer(&rh, sizeof(rh)));
 
-    // Send header
-    boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
-    // Send payload
-    if (!data.empty()) {
+    if (!message.empty()) {
+        std::vector<char> data(message.begin(), message.end());
+        PayloadHeader ph{ static_cast<uint32_t>(data.size()) };
+        ph.size = htole32(ph.size);
+        boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
         boost::asio::write(socket, boost::asio::buffer(data));
     }
 }
+
 
 /// Constructor for the Server
  /**
@@ -103,7 +104,7 @@ void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
             saveFile(userId, filename, fileData);
             std::cout << "Saved file: " << filename << " (" << fileData.size() << " bytes)" << std::endl;
 
-            sendResponse(socket, "OK");
+            sendResponse(socket, hdr.version, 212, "File saved");
             break;
         }
 
@@ -114,7 +115,7 @@ void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
             // Check if file exists
             if (!boost::filesystem::exists(filePath)) {
                 std::cerr << "File not found: " << filePath << std::endl;
-                sendResponse(socket, ""); // send zero-size payload for error
+                sendResponse(socket, hdr.version, 1001); // file doesn't exist
 
                 break; // exit case
             }
@@ -122,11 +123,8 @@ void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
             // Read file data
             std::vector<char> data = getFile(userId, filename);
 
-            // Send payload header + data
-            PayloadHeader ph{ static_cast<uint32_t>(data.size()) };
-            ph.size = htole32(ph.size);
-            boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
-            boost::asio::write(socket, boost::asio::buffer(data));
+            // Send response header + data
+            sendResponse(socket, hdr.version, 210, std::string(data.begin(), data.end()));
 
             std::cout << "Sent file: " << filename << " (" << data.size() << " bytes)" << std::endl;
             
@@ -137,23 +135,27 @@ void BackupServer::handleClient(boost::asio::ip::tcp::socket socket) {
             deleteFile(userId, filename);
             std::cout << "Deleted file: " << filename << std::endl;
 
-            sendResponse(socket, "Deleted" + filename);
+            sendResponse(socket, hdr.version, 212, "File deleted");
             break;
         }
 
         case 202: {  // LIST FILES
             std::string listFile = listFiles(userId);
-            std::vector<char> data(listFile.begin(), listFile.end());
-            PayloadHeader ph{ static_cast<uint32_t>(data.size()) };
-            ph.size = htole32(ph.size);
-            boost::asio::write(socket, boost::asio::buffer(&ph, sizeof(ph)));
-            boost::asio::write(socket, boost::asio::buffer(data));
-            std::cout << "Sent file list for user " << userId << std::endl;
+
+            if (listFile.empty()) {
+                sendResponse(socket, hdr.version, 1002);  // no files on the server
+                std::cerr << "No files found for user " << userId << std::endl;
+                break;
+            }
+
+            sendResponse(socket, hdr.version, 211, std::string(listFile.begin(), listFile.end())); // success: list file generated and sent
+            std::cout << "Sent list file name: " << listFile << std::endl;
             break;
         }
 
         default:
-            std::cerr << "Unknown operation code: " << (int)hdr.op << std::endl;
+            sendResponse(socket, hdr.version, 1003); // general server error
+            std::cerr << "Unknown op: " << (int)hdr.op << std::endl;
             break;
         }
     }
@@ -181,29 +183,41 @@ void BackupServer::deleteFile(const std::string& userId, const std::string& file
 //This function generates the list file as mentioned in the maman  
 /*
 *   the function generates random filename 32 length made of 'A-Za-z0-9' combination
+*   if there is no files for the user return empty String and the Handle function will handle it
 *   the function check what are the files inside the diretory and writes it to the file
 *   @return the list filename that the function generated
 */
 std::string BackupServer::listFiles(const std::string& userId) {
     boost::filesystem::path userDir = boost::filesystem::path(baseDir_) / userId;
-    boost::filesystem::create_directories(userDir);
+    if (!boost::filesystem::exists(userDir) || boost::filesystem::is_empty(userDir)) {
+        return ""; // no files -> let handleClient send error 1002
+    }
 
-    // Generate a random filename for the listing file
+    // Generate random filename
     std::string listFilename = generateRandomFilename(32) + ".txt";
     boost::filesystem::path listFilePath = userDir / listFilename;
 
-    // Open the file for writing
     std::ofstream listFile(listFilePath.string());
+    bool hasFiles = false;
 
-    // Iterate actual files in the user's directory
+    // Write only actual files
     for (auto& entry : boost::filesystem::directory_iterator(userDir)) {
-        if (boost::filesystem::is_regular_file(entry.path()) && entry.path().filename() != listFilePath.filename()) {
+        if (boost::filesystem::is_regular_file(entry.path()) &&
+            entry.path().filename() != listFilePath.filename()) {
             listFile << entry.path().filename().string() << "\n";
+            hasFiles = true;
         }
     }
 
     listFile.close();
-    return listFilename;  // Return the random text filename
+
+    // If no files were written -> delete the file and return empty
+    if (!hasFiles) {
+        boost::filesystem::remove(listFilePath);
+        return "";
+    }
+
+    return listFilename;
 }
 
 /**
